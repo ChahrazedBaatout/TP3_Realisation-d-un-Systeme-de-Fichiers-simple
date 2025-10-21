@@ -6,7 +6,7 @@
 #include <unistd.h>
 #include "tosfs.h"
 
-#define FS_FILENAME "test_tosfs_files"
+#define FS_FILENAME "../test_tosfs_files"
 #define FS_SIZE (32 * TOSFS_BLOCK_SIZE)
 
 void tosfs_load_fs(void) {
