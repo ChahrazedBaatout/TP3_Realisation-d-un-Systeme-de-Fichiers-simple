@@ -1,15 +1,15 @@
+#define FUSE_USE_VERSION 26
+#include <fuse_lowlevel.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
 #include <sys/mman.h>
-#include <sys/stat.h>
 #include <unistd.h>
 #include "tosfs.h"
-
-#define FS_FILENAME "../test_tosfs_files"
+#define FS_FILENAME "test_tosfs_files"
 #define FS_SIZE (32 * TOSFS_BLOCK_SIZE)
 
-void tosfs_load_fs(void) {
+static void tosfs_load_fs(void) {
     int fd;
     void *fs_addr;
 
@@ -59,14 +59,67 @@ void tosfs_load_fs(void) {
         printf(" - %s (inode %u)\n", entry->name, entry->inode);
         entry++;
     }
-
-    munmap(fs_addr, FS_SIZE);
-    close(fd);
-
 }
 
-int main() {
-    tosfs_load_fs();
-
-    return 0;
+static void tosfs_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) {
+    (void)req; (void)ino; (void)fi;
 }
+
+static void tosfs_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi) {
+    (void)req; (void)ino; (void)size; (void)off; (void)fi;
+}
+
+static void tosfs_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
+    (void)req; (void)parent; (void)name;
+}
+
+static void tosfs_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi) {
+    (void)req; (void)ino; (void)size; (void)off; (void)fi;
+}
+
+static void tosfs_create(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode, struct fuse_file_info *fi) {
+    (void)req; (void)parent; (void)name; (void)mode; (void)fi;
+}
+
+static void tosfs_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t size, off_t off, struct fuse_file_info *fi) {
+    (void)req; (void)ino; (void)buf; (void)size; (void)off; (void)fi;
+}
+static const struct fuse_lowlevel_ops tosfs_ops = {
+    .getattr = tosfs_getattr,
+    .readdir = tosfs_readdir,
+    .lookup  = tosfs_lookup,
+    .read    = tosfs_read,
+    .create  = tosfs_create,
+    .write   = tosfs_write
+};
+
+int main(int argc, char *argv[]) {
+        struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
+        struct fuse_chan *ch;
+        char *mountpoint;
+        int err = -1;
+
+        tosfs_load_fs();
+
+        if (fuse_parse_cmdline(&args, &mountpoint, NULL, NULL) != -1 &&
+            (ch = fuse_mount(mountpoint, &args)) != NULL) {
+            struct fuse_session *se;
+
+            se = fuse_lowlevel_new(&args, &tosfs_ops, sizeof(tosfs_ops), NULL);
+            if (se != NULL) {
+                if (fuse_set_signal_handlers(se) != -1) {
+                    fuse_session_add_chan(se, ch);
+                    err = fuse_session_loop(se);
+                    fuse_remove_signal_handlers(se);
+                    fuse_session_remove_chan(ch);
+                }
+                fuse_session_destroy(se);
+            }
+            fuse_unmount(mountpoint, ch);
+            }
+
+        fuse_opt_free_args(&args);
+        return err ? 1 : 0;
+
+    }
+
