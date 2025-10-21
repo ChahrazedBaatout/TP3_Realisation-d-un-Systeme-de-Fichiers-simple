@@ -3,11 +3,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include <string.h>
 #include <sys/mman.h>
+#include <errno.h>
 #include <unistd.h>
 #include "tosfs.h"
 #define FS_FILENAME "test_tosfs_files"
 #define FS_SIZE (32 * TOSFS_BLOCK_SIZE)
+
+static struct tosfs_superblock *sb;
+static struct tosfs_inode *inodes;
+static struct tosfs_dentry *root;
 
 static void tosfs_load_fs(void) {
     int fd;
@@ -26,9 +32,10 @@ static void tosfs_load_fs(void) {
         exit(EXIT_FAILURE);
     }
 
-    struct tosfs_superblock *sb = (struct tosfs_superblock *) fs_addr;
-    struct tosfs_inode *inodes = (struct tosfs_inode *) ((char *) fs_addr + TOSFS_BLOCK_SIZE);
-    struct tosfs_dentry *root = (struct tosfs_dentry *) ((char *) fs_addr + 2 * TOSFS_BLOCK_SIZE);
+    sb = (struct tosfs_superblock *) fs_addr;
+    inodes = (struct tosfs_inode *) ((char *) fs_addr + TOSFS_BLOCK_SIZE);
+    root = (struct tosfs_dentry *) ((char *) fs_addr + 2 * TOSFS_BLOCK_SIZE);
+
 
     printf("===== SUPERBLOCK =====\n");
     printf("Magic number     : 0x%x\n", sb->magic);
@@ -61,8 +68,43 @@ static void tosfs_load_fs(void) {
     }
 }
 
+static int tosfs_stat(fuse_ino_t ino, struct stat *stbuf){
+
+    if (ino == FUSE_ROOT_ID) {
+        stbuf->st_ino = ino;
+        stbuf->st_mode = S_IFDIR | 0755;
+        stbuf->st_nlink = 2;
+        stbuf->st_size = TOSFS_BLOCK_SIZE;
+        return 0;
+    }
+        size_t idx = ino - 2;
+        if (sb == NULL) {
+            return -1;
+        }
+        if (idx < sb->inodes) {
+            struct tosfs_inode *inode = &inodes[idx];
+            if (inode->inode != 0) {
+                stbuf->st_ino = ino;
+                stbuf->st_mode = S_IFREG | inode->perm;
+                stbuf->st_nlink = inode->nlink;
+                stbuf->st_size = inode->size;
+                stbuf->st_uid = inode->uid;
+                stbuf->st_gid = inode->gid;
+                return 0;
+            }
+        }
+
+    return -1;
+}
+
 static void tosfs_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) {
-    (void)req; (void)ino; (void)fi;
+    (void) fi;
+    struct stat stbuf;
+    memset(&stbuf, 0, sizeof(stbuf));
+    if (tosfs_stat(ino, &stbuf) == -1)
+        fuse_reply_err(req, ENOENT);
+    else
+        fuse_reply_attr(req, &stbuf, 1.0);
 }
 
 static void tosfs_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi) {
