@@ -57,13 +57,13 @@ static void tosfs_load_fs(void) {
     int fd;
     void *fs_addr;
 
-    fd = open(FS_FILENAME, O_RDONLY);
+    fd = open(FS_FILENAME, O_RDWR);
     if (fd < 0) {
         perror("Erreur d’ouverture du fichier système");
         exit(EXIT_FAILURE);
     }
 
-    fs_addr = mmap(NULL, FS_SIZE, PROT_READ, MAP_PRIVATE, fd, 0);
+    fs_addr = mmap(NULL, FS_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (fs_addr == MAP_FAILED) {
         perror("Erreur mmap");
         close(fd);
@@ -104,6 +104,23 @@ static void tosfs_load_fs(void) {
         printf(" - %s (inode %u)\n", entry->name, entry->inode);
         entry++;
     }
+}
+
+static int dir_add(const char *name, __u32 inode_num) {
+    size_t max_dentries = TOSFS_BLOCK_SIZE / sizeof(struct tosfs_dentry);
+
+    if (strlen(name) >= TOSFS_MAX_NAME_LENGTH)
+        return -ENAMETOOLONG;
+
+    for (size_t i = 0; i < max_dentries; i++) {
+        if (root[i].inode == 0) {
+            root[i].inode = inode_num;
+            strncpy(root[i].name, name, TOSFS_MAX_NAME_LENGTH - 1);
+            root[i].name[TOSFS_MAX_NAME_LENGTH - 1] = '\0';
+            return 0;
+        }
+    }
+    return -ENOSPC;
 }
 
 static int tosfs_stat(fuse_ino_t ino, struct stat *stbuf) {
@@ -247,13 +264,69 @@ static void tosfs_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, s
     fuse_reply_buf(req, data_block + off, size);
 }
 
-
 static void tosfs_create(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode, struct fuse_file_info *fi) {
-    (void) req;
-    (void) parent;
-    (void) name;
-    (void) mode;
     (void) fi;
+
+    if (parent != FUSE_ROOT_ID) {
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+    if (sb == NULL || inodes == NULL || root == NULL) {
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+
+    int found_idx = -1;
+    for (size_t i = 0; i < sb->inodes; i++) {
+        if (inodes[i].inode == 0) {
+            found_idx = (int) i;
+            break;
+        }
+    }
+
+    if (found_idx == -1) {
+        fuse_reply_err(req, ENOSPC);
+        return;
+    }
+
+    __u32 new_inode_num = found_idx + 1;
+
+    struct tosfs_inode *ino = &inodes[found_idx];
+    memset(ino, 0, sizeof(*ino));
+    ino->inode = new_inode_num;
+    ino->block_no = new_inode_num + TOSFS_INODE_BLOCK;
+    ino->uid = (unsigned short) getuid();
+    ino->gid = (unsigned short) getgid();
+    ino->mode = (unsigned short) mode;
+    ino->perm = (unsigned short) (mode & 0777);
+    ino->size = 0;
+    ino->nlink = 1;
+
+    tosfs_set_bit(sb->inode_bitmap, new_inode_num);
+
+    int r = dir_add(name, new_inode_num);
+    if (r < 0) {
+        ino->inode = 0;
+        ino->block_no = 0;
+        sb->inode_bitmap &= ~(1u << new_inode_num);
+        fuse_reply_err(req, -r);
+        return;
+    }
+
+    /* préparer la réponse FUSE */
+    struct fuse_entry_param e;
+    memset(&e, 0, sizeof(e));
+    e.ino = (fuse_ino_t) (new_inode_num + 1); /* mapping utilisé par le FS */
+    e.entry_timeout = 1.0;
+    e.attr_timeout = 1.0;
+
+    if (tosfs_stat(e.ino, &e.attr) == -1) {
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+
+    /* répondre en créant l'entrée (retourne aussi le struct fuse_file_info fourni) */
+    fuse_reply_create(req, &e, fi);
 }
 
 static void tosfs_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t size, off_t off,
