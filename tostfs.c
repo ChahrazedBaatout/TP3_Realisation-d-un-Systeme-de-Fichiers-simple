@@ -162,9 +162,42 @@ static void tosfs_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 }
 
 static void tosfs_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
-    (void) req;
-    (void) parent;
-    (void) name;
+    if (parent != FUSE_ROOT_ID) {
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+
+    if (sb == NULL || root == NULL) {
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+
+    for (int i = 0; i < (int) sb->inodes; i++) {
+        if (root[i].inode == 0)
+            continue;
+
+        if (strcmp(root[i].name, name) == 0) {
+            struct fuse_entry_param e;
+            memset(&e, 0, sizeof(e));
+
+            e.ino = (fuse_ino_t) (root[i].inode + 2); /* convention : fuse ino = on-disk inode + 2 */
+            e.entry_timeout = 1.0;
+            e.attr_timeout = 1.0;
+
+            if (tosfs_stat(e.ino, &e.attr) == -1) {
+                fuse_reply_err(req, ENOENT);
+                return;
+            }
+
+            printf("lookup: found %s (inode %d → fuse ino %lu)\n",
+                   root[i].name, root[i].inode, (unsigned long) e.ino);
+
+            fuse_reply_entry(req, &e);
+            return;
+        }
+    }
+    printf("lookup: %s not found\n", name);
+    fuse_reply_err(req, ENOENT);
 }
 
 static void tosfs_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi) {
