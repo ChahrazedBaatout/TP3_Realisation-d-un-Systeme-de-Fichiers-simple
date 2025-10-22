@@ -124,6 +124,15 @@ static int tosfs_stat(fuse_ino_t ino, struct stat *stbuf) {
     return -1;
 }
 
+static void tosfs_access(fuse_req_t req, fuse_ino_t ino, int mask) {
+    (void) mask;
+    struct stat st;
+    if (tosfs_stat(ino, &st) == -1)
+        fuse_reply_err(req, ENOENT);
+    else
+        fuse_reply_err(req, 0);
+}
+
 static void tosfs_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) {
     (void) fi;
     struct stat stbuf;
@@ -232,7 +241,8 @@ static const struct fuse_lowlevel_ops tosfs_ops = {
     .lookup = tosfs_lookup,
     .read = tosfs_read,
     .create = tosfs_create,
-    .write = tosfs_write
+    .write = tosfs_write,
+    .access = tosfs_access
 };
 
 int main(int argc, char *argv[]) {
