@@ -2,3 +2,4 @@
 cmake-build-debug
 tostfs
 Ressources/hello
+tostfs_fuse
