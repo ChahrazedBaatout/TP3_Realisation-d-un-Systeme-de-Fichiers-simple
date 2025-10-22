@@ -45,13 +45,12 @@ static void dirbuf_add(fuse_req_t req, struct dirbuf *b, const char *name,
 
 static int reply_buf_limited(fuse_req_t req, const char *buf, size_t bufsize,
                              off_t off, size_t maxsize) {
-    if (off < bufsize)
+    if (off < bufsize) {
         return fuse_reply_buf(req, buf + off,
                               min(bufsize - off, maxsize));
-    else
-        return fuse_reply_buf(req, NULL, 0);
+    }
+    return fuse_reply_buf(req, NULL, 0);
 }
-
 
 static void tosfs_load_fs(void) {
     int fd;
@@ -109,8 +108,9 @@ static void tosfs_load_fs(void) {
 static int dir_add(const char *name, __u32 inode_num) {
     size_t max_dentries = TOSFS_BLOCK_SIZE / sizeof(struct tosfs_dentry);
 
-    if (strlen(name) >= TOSFS_MAX_NAME_LENGTH)
+    if (strlen(name) >= TOSFS_MAX_NAME_LENGTH) {
         return -ENAMETOOLONG;
+    }
 
     for (size_t i = 0; i < max_dentries; i++) {
         if (root[i].inode == 0) {
@@ -154,20 +154,22 @@ static int tosfs_stat(fuse_ino_t ino, struct stat *stbuf) {
 static void tosfs_access(fuse_req_t req, fuse_ino_t ino, int mask) {
     (void) mask;
     struct stat st;
-    if (tosfs_stat(ino, &st) == -1)
+    if (tosfs_stat(ino, &st) == -1) {
         fuse_reply_err(req, ENOENT);
-    else
+    } else {
         fuse_reply_err(req, 0);
+    }
 }
 
 static void tosfs_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) {
     (void) fi;
     struct stat stbuf;
     memset(&stbuf, 0, sizeof(stbuf));
-    if (tosfs_stat(ino, &stbuf) == -1)
+    if (tosfs_stat(ino, &stbuf) == -1) {
         fuse_reply_err(req, ENOENT);
-    else
+    } else {
         fuse_reply_attr(req, &stbuf, 1.0);
+    }
 }
 
 static void tosfs_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi) {
@@ -188,10 +190,12 @@ static void tosfs_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
     if (sb != NULL && root != NULL) {
         size_t max_dentries = TOSFS_BLOCK_SIZE / sizeof(struct tosfs_dentry);
         for (size_t i = 0; i < max_dentries; i++) {
-            if (root[i].inode == 0)
+            if (root[i].inode == 0) {
                 continue;
-            if (strcmp(root[i].name, ".") == 0 || strcmp(root[i].name, "..") == 0)
+            }
+            if (strcmp(root[i].name, ".") == 0 || strcmp(root[i].name, "..") == 0) {
                 continue;
+            }
             fuse_ino_t entry_ino = root[i].inode + 1;
             dirbuf_add(req, &b, root[i].name, entry_ino);
         }
@@ -214,8 +218,9 @@ static void tosfs_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
 
     size_t max_dentries = TOSFS_BLOCK_SIZE / sizeof(struct tosfs_dentry);
     for (size_t i = 0; i < max_dentries; i++) {
-        if (root[i].inode == 0)
+        if (root[i].inode == 0) {
             continue;
+        }
 
         if (strcmp(root[i].name, name) == 0) {
             struct fuse_entry_param e;
@@ -258,8 +263,9 @@ static void tosfs_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, s
         fuse_reply_buf(req, NULL, 0);
         return;
     }
-    if (off + size > inode->size)
+    if (off + size > inode->size) {
         size = inode->size - off;
+    }
 
     fuse_reply_buf(req, data_block + off, size);
 }
@@ -313,10 +319,9 @@ static void tosfs_create(fuse_req_t req, fuse_ino_t parent, const char *name, mo
         return;
     }
 
-    /* préparer la réponse FUSE */
     struct fuse_entry_param e;
     memset(&e, 0, sizeof(e));
-    e.ino = (fuse_ino_t) (new_inode_num + 1); /* mapping utilisé par le FS */
+    e.ino = (fuse_ino_t) (new_inode_num + 1);
     e.entry_timeout = 1.0;
     e.attr_timeout = 1.0;
 
@@ -324,8 +329,6 @@ static void tosfs_create(fuse_req_t req, fuse_ino_t parent, const char *name, mo
         fuse_reply_err(req, ENOENT);
         return;
     }
-
-    /* répondre en créant l'entrée (retourne aussi le struct fuse_file_info fourni) */
     fuse_reply_create(req, &e, fi);
 }
 
