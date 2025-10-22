@@ -5,8 +5,9 @@
 #include <fcntl.h>
 #include <string.h>
 #include <sys/mman.h>
-#include <errno.h>
+#include <sys/stat.h>
 #include <unistd.h>
+#include <errno.h>
 #include "tosfs.h"
 #define FS_FILENAME "test_tosfs_files"
 #define FS_SIZE (32 * TOSFS_BLOCK_SIZE)
@@ -224,12 +225,28 @@ static void tosfs_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
 }
 
 static void tosfs_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi) {
-    (void) req;
-    (void) ino;
-    (void) size;
-    (void) off;
     (void) fi;
+    if (ino == FUSE_ROOT_ID) {
+        fuse_reply_err(req, EISDIR);
+        return;
+    }
+    struct tosfs_inode *inode = &inodes[ino - 2];
+    if (inode->inode == 0) {
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+    char *data_block = (char *) sb + (inode->block_no * TOSFS_BLOCK_SIZE);
+
+    if (off >= inode->size) {
+        fuse_reply_buf(req, NULL, 0);
+        return;
+    }
+    if (off + size > inode->size)
+        size = inode->size - off;
+
+    fuse_reply_buf(req, data_block + off, size);
 }
+
 
 static void tosfs_create(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode, struct fuse_file_info *fi) {
     (void) req;
