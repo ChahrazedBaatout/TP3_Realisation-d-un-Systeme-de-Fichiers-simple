@@ -331,12 +331,49 @@ static void tosfs_create(fuse_req_t req, fuse_ino_t parent, const char *name, mo
 
 static void tosfs_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t size, off_t off,
                         struct fuse_file_info *fi) {
-    (void) req;
-    (void) ino;
-    (void) buf;
-    (void) size;
-    (void) off;
     (void) fi;
+
+    if (ino == FUSE_ROOT_ID) {
+        fuse_reply_err(req, EISDIR);
+        return;
+    }
+
+    if (sb == NULL || inodes == NULL) {
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+
+    size_t idx = ino - 2;
+    if (idx >= sb->inodes) {
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+
+    struct tosfs_inode *inode = &inodes[idx];
+    if (inode->inode == 0) {
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+
+    if (off < 0 || off > TOSFS_BLOCK_SIZE) {
+        fuse_reply_err(req, EFBIG);
+        return;
+    }
+
+    size_t max_write = (size_t) TOSFS_BLOCK_SIZE - (size_t) off;
+    size_t to_write = size > max_write ? max_write : size;
+
+    char *data_block = (char *) sb + (inode->block_no * TOSFS_BLOCK_SIZE);
+
+    memcpy(data_block + off, buf, to_write);
+
+    size_t new_size = (size_t) off + to_write;
+    if (new_size > inode->size) {
+        inode->size = (unsigned short) new_size;
+    }
+    msync(data_block + off, to_write, MS_SYNC);
+
+    fuse_reply_write(req, to_write);
 }
 
 static const struct fuse_lowlevel_ops tosfs_ops = {
