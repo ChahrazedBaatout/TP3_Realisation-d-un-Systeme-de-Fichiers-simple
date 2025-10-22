@@ -25,12 +25,21 @@ static void dirbuf_add(fuse_req_t req, struct dirbuf *b, const char *name,
                        fuse_ino_t ino) {
     struct stat stbuf;
     size_t oldsize = b->size;
-    b->size += fuse_add_direntry(req, NULL, 0, name, NULL, 0);
-    b->p = (char *) realloc(b->p, b->size);
     memset(&stbuf, 0, sizeof(stbuf));
     stbuf.st_ino = ino;
-    fuse_add_direntry(req, b->p + oldsize, b->size - oldsize, name, &stbuf,
-                      b->size);
+
+    size_t entry_len = fuse_add_direntry(req, NULL, 0, name, &stbuf, 0);
+
+    char *newp = realloc(b->p, b->size + entry_len);
+    if (newp == NULL) {
+        return;
+    }
+    b->p = newp;
+
+    fuse_add_direntry(req, b->p + oldsize, entry_len, name, &stbuf,
+                      (off_t) (oldsize + entry_len));
+
+    b->size += entry_len;
 }
 
 static int reply_buf_limited(fuse_req_t req, const char *buf, size_t bufsize,
