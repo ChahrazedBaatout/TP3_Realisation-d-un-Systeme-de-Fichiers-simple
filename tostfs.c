@@ -157,20 +157,24 @@ static void tosfs_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off
 
     if (ino != FUSE_ROOT_ID) {
         fuse_reply_err(req, ENOTDIR);
+        return;
     }
 
     struct dirbuf b;
-    memset(&b, 0, sizeof(b));
+    b.p = NULL;
+    b.size = 0;
 
     dirbuf_add(req, &b, ".", FUSE_ROOT_ID);
     dirbuf_add(req, &b, "..", FUSE_ROOT_ID);
 
-    if (sb != NULL) {
-        for (size_t i = 0; i < sb->inodes; i++) {
+    if (sb != NULL && root != NULL) {
+        size_t max_dentries = TOSFS_BLOCK_SIZE / sizeof(struct tosfs_dentry);
+        for (size_t i = 0; i < max_dentries; i++) {
             if (root[i].inode == 0)
                 continue;
-            fuse_ino_t entry_ino = root[i].inode + 2;
-
+            if (strcmp(root[i].name, ".") == 0 || strcmp(root[i].name, "..") == 0)
+                continue;
+            fuse_ino_t entry_ino = root[i].inode + 1;
             dirbuf_add(req, &b, root[i].name, entry_ino);
         }
     }
@@ -190,7 +194,8 @@ static void tosfs_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
         return;
     }
 
-    for (int i = 0; i < (int) sb->inodes; i++) {
+    size_t max_dentries = TOSFS_BLOCK_SIZE / sizeof(struct tosfs_dentry);
+    for (size_t i = 0; i < max_dentries; i++) {
         if (root[i].inode == 0)
             continue;
 
@@ -198,7 +203,7 @@ static void tosfs_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
             struct fuse_entry_param e;
             memset(&e, 0, sizeof(e));
 
-            e.ino = (fuse_ino_t) (root[i].inode + 2); /* convention : fuse ino = on-disk inode + 2 */
+            e.ino = (fuse_ino_t) (root[i].inode + 1);
             e.entry_timeout = 1.0;
             e.attr_timeout = 1.0;
 
