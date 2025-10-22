@@ -10,10 +10,38 @@
 #include "tosfs.h"
 #define FS_FILENAME "test_tosfs_files"
 #define FS_SIZE (32 * TOSFS_BLOCK_SIZE)
+#define min(x, y) ((x) < (y) ? (x) : (y))
+
+struct dirbuf {
+    char *p;
+    size_t size;
+};
 
 static struct tosfs_superblock *sb;
 static struct tosfs_inode *inodes;
 static struct tosfs_dentry *root;
+
+static void dirbuf_add(fuse_req_t req, struct dirbuf *b, const char *name,
+                       fuse_ino_t ino) {
+    struct stat stbuf;
+    size_t oldsize = b->size;
+    b->size += fuse_add_direntry(req, NULL, 0, name, NULL, 0);
+    b->p = (char *) realloc(b->p, b->size);
+    memset(&stbuf, 0, sizeof(stbuf));
+    stbuf.st_ino = ino;
+    fuse_add_direntry(req, b->p + oldsize, b->size - oldsize, name, &stbuf,
+                      b->size);
+}
+
+static int reply_buf_limited(fuse_req_t req, const char *buf, size_t bufsize,
+                             off_t off, size_t maxsize) {
+    if (off < bufsize)
+        return fuse_reply_buf(req, buf + off,
+                              min(bufsize - off, maxsize));
+    else
+        return fuse_reply_buf(req, NULL, 0);
+}
+
 
 static void tosfs_load_fs(void) {
     int fd;
@@ -107,11 +135,30 @@ static void tosfs_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info 
 }
 
 static void tosfs_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off, struct fuse_file_info *fi) {
-    (void) req;
-    (void) ino;
-    (void) size;
-    (void) off;
     (void) fi;
+
+    if (ino != FUSE_ROOT_ID) {
+        fuse_reply_err(req, ENOTDIR);
+    }
+
+    struct dirbuf b;
+    memset(&b, 0, sizeof(b));
+
+    dirbuf_add(req, &b, ".", FUSE_ROOT_ID);
+    dirbuf_add(req, &b, "..", FUSE_ROOT_ID);
+
+    if (sb != NULL) {
+        for (size_t i = 0; i < sb->inodes; i++) {
+            if (root[i].inode == 0)
+                continue;
+            fuse_ino_t entry_ino = root[i].inode + 2;
+
+            dirbuf_add(req, &b, root[i].name, entry_ino);
+        }
+    }
+
+    reply_buf_limited(req, b.p, b.size, off, size);
+    free(b.p);
 }
 
 static void tosfs_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
