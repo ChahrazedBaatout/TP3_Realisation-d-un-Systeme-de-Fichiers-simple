@@ -12,6 +12,11 @@
 #define FS_FILENAME "test_tosfs_files"
 #define FS_SIZE (32 * TOSFS_BLOCK_SIZE)
 #define min(x, y) ((x) < (y) ? (x) : (y))
+#define ROOT_DIR_BLOCK_INDEX   2
+#define MAX_ROOT_ENTRIES       32
+#define DIR_DEFAULT_MODE       0755
+#define FILE_ATTR_TIMEOUT      1.0
+#define ENTRY_TIMEOUT          1.0
 
 struct dirbuf {
     char *p;
@@ -71,7 +76,7 @@ static void tosfs_load_fs(void) {
 
     sb = (struct tosfs_superblock *) fs_addr;
     inodes = (struct tosfs_inode *) ((char *) fs_addr + TOSFS_BLOCK_SIZE);
-    root = (struct tosfs_dentry *) ((char *) fs_addr + 2 * TOSFS_BLOCK_SIZE);
+    root = (struct tosfs_dentry *) ((char *) fs_addr + ROOT_DIR_BLOCK_INDEX  * TOSFS_BLOCK_SIZE);
 
 
     printf("===== SUPERBLOCK =====\n");
@@ -98,7 +103,7 @@ static void tosfs_load_fs(void) {
 
     printf("===== RÉPERTOIRE RACINE =====\n");
     struct tosfs_dentry *entry = root;
-    for (int i = 0; i < 32; i++) {
+    for (int i = 0; i < MAX_ROOT_ENTRIES; i++) {
         if (entry->inode == 0) break;
         printf(" - %s (inode %u)\n", entry->name, entry->inode);
         entry++;
@@ -126,7 +131,7 @@ static int dir_add(const char *name, __u32 inode_num) {
 static int tosfs_stat(fuse_ino_t ino, struct stat *stbuf) {
     if (ino == FUSE_ROOT_ID) {
         stbuf->st_ino = ino;
-        stbuf->st_mode = S_IFDIR | 0755;
+        stbuf->st_mode = S_IFDIR | DIR_DEFAULT_MODE;
         stbuf->st_nlink = 2;
         stbuf->st_size = TOSFS_BLOCK_SIZE;
         return 0;
@@ -322,8 +327,8 @@ static void tosfs_create(fuse_req_t req, fuse_ino_t parent, const char *name, mo
     struct fuse_entry_param e;
     memset(&e, 0, sizeof(e));
     e.ino = (fuse_ino_t) (new_inode_num + 1);
-    e.entry_timeout = 1.0;
-    e.attr_timeout = 1.0;
+    e.entry_timeout = ENTRY_TIMEOUT;
+    e.attr_timeout = FILE_ATTR_TIMEOUT;
 
     if (tosfs_stat(e.ino, &e.attr) == -1) {
         fuse_reply_err(req, ENOENT);
