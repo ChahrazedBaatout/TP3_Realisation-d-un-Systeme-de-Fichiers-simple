@@ -57,6 +57,41 @@ static int reply_buf_limited(fuse_req_t req, const char *buf, size_t bufsize,
     return fuse_reply_buf(req, NULL, 0);
 }
 
+static void print_superblock(void) {
+    printf("===== SUPERBLOCK =====\n");
+    printf("Magic number     : 0x%08X\n", sb->magic);
+    printf("Block bitmap     : "PRINTF_BINARY_PATTERN_INT32"\n", PRINTF_BYTE_TO_BINARY_INT32(sb->block_bitmap));
+    printf("Inode bitmap     : "PRINTF_BINARY_PATTERN_INT32"\n", PRINTF_BYTE_TO_BINARY_INT32(sb->inode_bitmap));
+    printf("Block size       : %u\n", sb->block_size);
+    printf("Block count      : %u\n", sb->blocks);
+    printf("Inode count      : %u\n", sb->inodes);
+    printf("Root inode       : %u\n\n", sb->root_inode);
+}
+
+static void print_inodes(void) {
+    printf("===== INODE TABLE =====\n");
+    for (int i = 0; i < sb->inodes; i++) {
+        struct tosfs_inode *inode_entry = &inodes[i];
+        if (inode_entry->inode == 0) continue;
+        printf("Inode %d : Block=%d, UID=%d, GID=%d, Size=%d, Links=%d\n",
+               inode_entry->inode,
+               inode_entry->block_no,
+               inode_entry->uid,
+               inode_entry->gid,
+               inode_entry->size,
+               inode_entry->nlink);
+    }
+}
+
+static void print_root_directory(void) {
+    printf("===== ROOT DIRECTORY =====\n");
+    struct tosfs_dentry *dir_entry = root;
+    for (int i = 0; i < MAX_ROOT_ENTRIES; i++) {
+        if (dir_entry->inode == 0) break;
+        printf(" - %s (inode %u)\n", dir_entry->name, dir_entry->inode);
+        dir_entry++;
+    }
+}
 static void tosfs_load_fs(void) {
     int fd;
     void *fs_addr;
@@ -78,36 +113,11 @@ static void tosfs_load_fs(void) {
     inodes = (struct tosfs_inode *) ((char *) fs_addr + TOSFS_BLOCK_SIZE);
     root = (struct tosfs_dentry *) ((char *) fs_addr + ROOT_DIR_BLOCK_INDEX  * TOSFS_BLOCK_SIZE);
 
+    print_superblock();
+    print_inodes();
+    print_root_directory();
 
-    printf("===== SUPERBLOCK =====\n");
-    printf("Magic number     : 0x%x\n", sb->magic);
-    printf("Bitmap blocs     : "PRINTF_BINARY_PATTERN_INT32"\n", PRINTF_BYTE_TO_BINARY_INT32(sb->block_bitmap));
-    printf("Bitmap inodes    : "PRINTF_BINARY_PATTERN_INT32"\n", PRINTF_BYTE_TO_BINARY_INT32(sb->inode_bitmap));
-    printf("Taille des blocs : %u\n", sb->block_size);
-    printf("Nombre de blocs  : %u\n", sb->blocks);
-    printf("Nombre d’inodes  : %u\n", sb->inodes);
-    printf("Inode racine     : %u\n\n", sb->root_inode);
 
-    printf("===== TABLE DES INODES =====\n");
-    for (int i = 0; i < sb->inodes; i++) {
-        struct tosfs_inode *ino = &inodes[i];
-        if (ino->inode == 0) continue;
-        printf("Inode %d :\n", ino->inode);
-        printf(" - Bloc de données : %d\n", ino->block_no);
-        printf(" - UID/GID : %d/%d\n", ino->uid, ino->gid);
-        printf(" - Mode     : %d\n", ino->mode);
-        printf(" - Permissions : %o\n", ino->perm);
-        printf(" - Taille   : %d octets\n", ino->size);
-        printf(" - Liens    : %d\n\n", ino->nlink);
-    }
-
-    printf("===== RÉPERTOIRE RACINE =====\n");
-    struct tosfs_dentry *entry = root;
-    for (int i = 0; i < MAX_ROOT_ENTRIES; i++) {
-        if (entry->inode == 0) break;
-        printf(" - %s (inode %u)\n", entry->name, entry->inode);
-        entry++;
-    }
 }
 
 static int dir_add(const char *name, __u32 inode_num) {
